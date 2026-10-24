@@ -58,7 +58,30 @@ func _ready() -> void:
 	look_rotation.y = rotation.y
 	look_rotation.x = head.rotation.x
 
+func _process(_delta: float) -> void:
+	var look := Touch.consume_look()
+	if look != Vector2.ZERO:
+		rotate_look(look)
+
+
+func set_look_degrees(pitch_degrees: float, yaw_degrees: float) -> void:
+	look_rotation.x = deg_to_rad(pitch_degrees)
+	look_rotation.y = deg_to_rad(yaw_degrees)
+	_apply_look()
+
+
+func _input_dir() -> Vector2:
+	var keyboard := Input.get_vector(input_left, input_right, input_forward, input_back)
+	var stick := Touch.move
+	if stick.length_squared() > keyboard.length_squared():
+		return stick
+	return keyboard
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	# Phones drive look from the touch layer. Emulated mouse motion would double it.
+	if OS.has_feature("mobile"):
+		return
 	# Mouse capturing
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		capture_mouse()
@@ -79,7 +102,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	# If freeflying, handle freefly and nothing else
 	if can_freefly and freeflying:
-		var input_dir := Input.get_vector(input_left, input_right, input_forward, input_back)
+		var input_dir := _input_dir()
 		var motion := (head.global_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 		motion *= freefly_speed * delta
 		move_and_collide(motion)
@@ -91,9 +114,8 @@ func _physics_process(delta: float) -> void:
 			velocity += get_gravity() * delta
 
 	# Apply jumping
-	if can_jump:
-		if Input.is_action_just_pressed(input_jump) and is_on_floor():
-			velocity.y = jump_velocity
+	if can_jump and is_on_floor() and (Input.is_action_just_pressed(input_jump) or Touch.consume_jump()):
+		velocity.y = jump_velocity
 
 	# Modify speed based on sprinting
 	if can_sprint and Input.is_action_pressed(input_sprint):
@@ -103,7 +125,7 @@ func _physics_process(delta: float) -> void:
 
 	# Apply desired movement to velocity
 	if can_move:
-		var input_dir := Input.get_vector(input_left, input_right, input_forward, input_back)
+		var input_dir := _input_dir()
 		var move_dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 		if move_dir:
 			velocity.x = move_dir.x * move_speed
@@ -126,6 +148,10 @@ func rotate_look(rot_input : Vector2):
 	look_rotation.x -= rot_input.y * look_speed
 	look_rotation.x = clamp(look_rotation.x, deg_to_rad(-85), deg_to_rad(85))
 	look_rotation.y -= rot_input.x * look_speed
+	_apply_look()
+
+
+func _apply_look() -> void:
 	transform.basis = Basis()
 	rotate_y(look_rotation.y)
 	head.transform.basis = Basis()
