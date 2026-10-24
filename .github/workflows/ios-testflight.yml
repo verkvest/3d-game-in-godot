@@ -1,0 +1,166 @@
+# Export Pyrewick for iOS, archive it, and upload to TestFlight when signing secrets exist.
+# The archive step always runs. Signing and upload run only when the App Store Connect API key is set.
+name: ios-testflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["testflight-*"]
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2"
+  TEAM_ID: 38PT254HDZ
+  BUNDLE_ID: es.verkvest.pyrewick
+  APP_VERSION: "0.1.0"
+
+jobs:
+  testflight:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      HAS_KEY: ${{ secrets.APPSTORE_API_KEY_P8 != '' && secrets.APPSTORE_API_KEY_ID != '' && secrets.APPSTORE_API_ISSUER_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          set -euo pipefail
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
+          if [ -z "${X}" ]; then
+            echo "::error::Xcode 26 was not found. The App Store requires the iOS 26 SDK."
+            ls /Applications | grep -i xcode || true
+            exit 1
+          fi
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      - name: Install Godot 4.7.2 and export templates
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          xattr -dr com.apple.quarantine "$RUNNER_TEMP/godot" || true
+          GODOT=$(find "$RUNNER_TEMP/godot" -type f -path "*.app/Contents/MacOS/Godot" | head -1)
+          chmod +x "$GODOT"
+          echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+          curl -fsSL -o "$RUNNER_TEMP/templates.tpz" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          rm -rf "$RUNNER_TEMP/tpl"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/tpl"
+          DEST="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          cp -R "$RUNNER_TEMP/tpl/templates/." "$DEST/"
+          test -f "$DEST/ios.zip"
+
+      - name: Stamp build number and export the Xcode project
+        run: |
+          set -euo pipefail
+          python3 tools/stamp_build.py 3d_game/export_presets.cfg "${{ github.run_number }}"
+          mkdir -p 3d_game/build/ios
+          "$GODOT" --headless --path 3d_game --import --quit
+          "$GODOT" --headless --path 3d_game --export-release "iOS" build/ios/Pyrewick.ipa
+          test -d 3d_game/build/ios/Pyrewick.xcodeproj
+          xcodebuild -project 3d_game/build/ios/Pyrewick.xcodeproj -list
+
+      - name: Archive unsigned
+        run: |
+          set -euo pipefail
+          xcodebuild -project 3d_game/build/ios/Pyrewick.xcodeproj -scheme Pyrewick -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Pyrewick.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SKIP_INSTALL=NO INSTALL_PATH=/Applications \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            archive | tee "$RUNNER_TEMP/archive.log" | tail -80
+          test ${PIPESTATUS[0]} -eq 0
+          test -d "$RUNNER_TEMP/Pyrewick.xcarchive/Products/Applications"
+          echo "Unsigned archive created."
+
+      - name: Install App Store Connect API key
+        if: env.HAS_KEY == 'true'
+        env:
+          APPSTORE_API_KEY_P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEYFILE=~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+          if printf '%s' "$APPSTORE_API_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$APPSTORE_API_KEY_P8" > "$KEYFILE"
+          else
+            printf '%s' "$APPSTORE_API_KEY_P8" | base64 --decode > "$KEYFILE"
+          fi
+          chmod 600 "$KEYFILE"
+          echo "KEYFILE=$KEYFILE" >> "$GITHUB_ENV"
+
+      - name: Register bundle id
+        if: env.HAS_KEY == 'true'
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: python3 tools/asc_bundle_id.py "$KEYFILE"
+
+      - name: Sign and upload to TestFlight
+        if: env.HAS_KEY == 'true'
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Pyrewick.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates -authenticationKeyPath "$KEYFILE" \
+            -authenticationKeyID "$APPSTORE_API_KEY_ID" -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID"
+          ls -la "$RUNNER_TEMP/export"
+          xcrun altool --upload-app -t ios -f "$RUNNER_TEMP"/export/*.ipa \
+            --apiKey "$APPSTORE_API_KEY_ID" --apiIssuer "$APPSTORE_API_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/upload.log"
+          if grep -E -q "ERROR|Cannot determine the Apple ID|No suitable application records were found" "$RUNNER_TEMP/upload.log"; then
+            if grep -E -q "Cannot determine the Apple ID|No suitable application records were found" "$RUNNER_TEMP/upload.log"; then
+              echo "::error::No App Store Connect app record for ${BUNDLE_ID}. Create it in App Store Connect → Apps → + with bundle id ${BUNDLE_ID}, then re-run this workflow. The bundle id itself is registered by this job when the API key is present."
+            else
+              echo "::error::TestFlight upload failed. See the upload log."
+            fi
+            exit 1
+          fi
+          echo "::notice::Uploaded ${BUNDLE_ID} ${APP_VERSION} (${{ github.run_number }}) to App Store Connect."
+
+      - name: Note missing signing secrets
+        if: env.HAS_KEY != 'true'
+        run: echo "::notice::App Store Connect API key secrets are not set. The unsigned archive succeeded; signing and TestFlight upload were skipped."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-archive-log
+          path: ${{ runner.temp }}/archive.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: always() && env.HAS_KEY == 'true'
+        with:
+          name: testflight-upload-log
+          path: ${{ runner.temp }}/upload.log
+          if-no-files-found: ignore
+
+      - name: Cleanup key
+        if: always()
+        run: rm -rf ~/.appstoreconnect/private_keys

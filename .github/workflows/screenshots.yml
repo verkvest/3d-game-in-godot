@@ -1,0 +1,58 @@
+# Phone-aspect screenshots of the Pyrewick menu and the first hold.
+name: screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and a software GL display
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y xvfb unzip libgl1 libglu1-mesa libxcursor1 libxi6 libxinerama1 libxrandr2 libx11-6 libxext6
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          GODOT=$(find "$RUNNER_TEMP/godot" -type f -name "Godot_v${GODOT_VERSION}-stable_linux.x86_64" | head -1)
+          chmod +x "$GODOT"
+          echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+
+      - name: Capture menu and gameplay
+        env:
+          SHOT_DIR: ${{ github.workspace }}/docs/screenshots
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$SHOT_DIR"
+          "$GODOT" --headless --path 3d_game --import --quit
+          xvfb-run -a -s "-screen 0 2560x1440x24" \
+            "$GODOT" --path 3d_game \
+            --display-driver x11 --rendering-driver opengl3 --rendering-method gl_compatibility \
+            --audio-driver Dummy --resolution 2400x1080 \
+            res://tools/capture_shots.tscn
+          test -s docs/screenshots/menu.png
+          test -s docs/screenshots/gameplay.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-screenshots
+          path: docs/screenshots/*.png
+          if-no-files-found: warn

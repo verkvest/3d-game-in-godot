@@ -1,0 +1,149 @@
+# Release APK and AAB for Pyrewick. targetSdk 36.
+# Uses the release keystore secrets when they are set; otherwise signs with a debug keystore.
+name: android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Java and the Android SDK
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk unzip wget
+          JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+          ok=0
+          for url in \
+            "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip" \
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          do
+            if curl -fL --retry 3 -o "$RUNNER_TEMP/cmdtools.zip" "$url"; then
+              ok=1
+              break
+            fi
+          done
+          test "$ok" = 1
+          rm -rf "$SDK/cmdline-tools/latest"
+          unzip -q "$RUNNER_TEMP/cmdtools.zip" -d "$SDK/cmdline-tools"
+          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" \
+            "platforms;android-36" "build-tools;36.1.0" "platform-tools" "ndk;29.0.14206865"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      - name: Install Godot 4.7.2 and export templates
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          GODOT=$(find "$RUNNER_TEMP/godot" -type f -name "Godot_v${GODOT_VERSION}-stable_linux.x86_64" | head -1)
+          chmod +x "$GODOT"
+          echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+          curl -fsSL -o "$RUNNER_TEMP/templates.tpz" \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          rm -rf "$RUNNER_TEMP/tpl"
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/tpl"
+          DEST="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          cp -R "$RUNNER_TEMP/tpl/templates/." "$DEST/"
+          test -f "$DEST/android_source.zip"
+
+      - name: Keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_KEYSTORE_B64}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD}" ] && [ -n "${ANDROID_KEY_ALIAS}" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "KEYSTORE_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASS=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "Using the release keystore secrets."
+          else
+            keytool -genkeypair -keystore "$RUNNER_TEMP/debug.keystore" -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
+            echo "KEYSTORE_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASS=android" >> "$GITHUB_ENV"
+            echo "::notice::Release keystore secrets are absent. APK and AAB are signed with a debug keystore."
+          fi
+
+      - name: Export APK and AAB
+        run: |
+          set -euo pipefail
+          python3 tools/stamp_build.py 3d_game/export_presets.cfg "${{ github.run_number }}"
+          mkdir -p 3d_game/build/android
+          "$GODOT" --headless --path 3d_game --import --quit
+          python3 - << PY
+          from pathlib import Path
+          path = Path.home() / ".config/godot/editor_settings-4.7.tres"
+          text = path.read_text()
+          updates = {
+              "export/android/android_sdk_path": "${ANDROID_SDK_ROOT}",
+              "export/android/java_sdk_path": "${JAVA_HOME}",
+              "export/android/debug_keystore": "${KEYSTORE_PATH}",
+              "export/android/debug_keystore_user": "${KEYSTORE_ALIAS}",
+              "export/android/debug_keystore_pass": "${KEYSTORE_PASS}",
+          }
+          lines = text.splitlines()
+          seen = set()
+          out = []
+          for line in lines:
+              key = line.split(" = ", 1)[0]
+              if key in updates:
+                  out.append(f'{key} = "{updates[key]}"')
+                  seen.add(key)
+              else:
+                  out.append(line)
+          for key, value in updates.items():
+              if key not in seen:
+                  out.append(f'{key} = "{value}"')
+          path.write_text("\n".join(out) + "\n")
+          print("patched", path)
+          PY
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$KEYSTORE_PATH"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="$KEYSTORE_ALIAS"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="$KEYSTORE_PASS"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$KEYSTORE_PATH"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_USER="$KEYSTORE_ALIAS"
+          export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$KEYSTORE_PASS"
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m -Dorg.gradle.workers.max=2"
+          "$GODOT" --headless --path 3d_game --export-release "Android APK" build/android/Pyrewick.apk --install-android-build-template
+          "$GODOT" --headless --path 3d_game --export-release "Android AAB" build/android/Pyrewick.aab
+          test -s 3d_game/build/android/Pyrewick.apk
+          test -s 3d_game/build/android/Pyrewick.aab
+          AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | sort | tail -1)
+          "$AAPT" dump badging 3d_game/build/android/Pyrewick.apk | head -20
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pyrewick-android
+          path: |
+            3d_game/build/android/Pyrewick.apk
+            3d_game/build/android/Pyrewick.aab
+          if-no-files-found: warn

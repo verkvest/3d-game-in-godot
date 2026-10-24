@@ -1,0 +1,90 @@
+Pyrewick
+First-person vault game built on the Brackeys "3D game in Godot" project.
+Every bundled asset below may be redistributed commercially.
+
+This file is shown in the in-game Credits & licenses screen.
+No third-party fonts are bundled (Godot's built-in font is used).
+No music is bundled.
+
+--------------------------------------------------------------------------------
+Godot Engine
+https://godotengine.org
+Copyright (c) 2014-present Godot Engine contributors.
+Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.
+Licensed under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+Jolt Physics
+https://github.com/jrouwe/JoltPhysics
+Copyright (c) 2021 Jorrit Rouwe.
+Licensed under the MIT License.
+
+Jolt is compiled into the official Godot 4.7 engine, including the iOS and
+Android export templates. This project sets the 3D physics engine to
+"Jolt Physics" and does not ship the separate godot-jolt GDExtension
+(that extension targeted Godot 4.3 only).
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+KayKit Dungeon Remastered
+by Kay Lousberg
+https://kaylousberg.itch.io/kaykit-dungeon
+Models, dungeon albedo, and chest texture.
+CC0 1.0 Universal. The author has waived all copyright to the extent allowed
+by law. https://creativecommons.org/publicdomain/zero/1.0/
+
+--------------------------------------------------------------------------------
+Brackeys Proto Controller and the "3D game in Godot" tutorial project
+by Brackeys
+https://github.com/Brackeys/brackeys-proto-controller
+CC0 1.0 Universal. The original tutorial scene (main.tscn) remains in the
+repository and is excluded from the mobile export.
+
+--------------------------------------------------------------------------------
+Poly Haven — Autumn Field
+HDRI by Sergej Majboroda
+https://polyhaven.com/a/autumn_field
+CC0 1.0 Universal.
+The file autumn_field_puresky_4k.hdr stays in this repository for the original
+tutorial scene. It is excluded from the iOS and Android export. The shipped
+game uses a procedural ember sky instead.
+
+--------------------------------------------------------------------------------
+Pyrewick icon, menus, level layout, and touch controls
+Original to this project.
+Dedicated to the public domain under CC0 1.0 Universal.
